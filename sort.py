@@ -1,65 +1,115 @@
-import tkinter as tk
-from PIL import Image, ImageTk
 import os
-import random
 import shutil
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageTk
+import sys
 
-class ImageSorter:
-    def __init__(self, root, image_dir, goal_dir):
+class PhotoSorter:
+    def __init__(self, root, input_dir, output_dir):
         self.root = root
-        self.image_dir = image_dir
-        self.goal_dir = goal_dir
+        self.root.title("Photo Sorter")
 
-        self.image_files = [f for f in os.listdir(image_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif'))]
-        self.current_image = None
+        self.input_dir = input_dir
+        self.output_dir = output_dir
+        self.counter_file = 'counter.txt'
 
-        self.create_widgets()
-        self.load_random_image()
+        self.image_files = self.get_image_files()
 
-    def create_widgets(self):
-        self.root.title("Image Sorter")
+        self.label = tk.Label(root, text=f"Sorting {len(self.image_files)} images from {self.input_dir}")
+        self.label.pack()
 
-        self.load_button = tk.Button(self.root, text="Load Random Image", command=self.load_random_image)
-        self.load_button.pack()
-
-        self.image_label = tk.Label(self.root)
+        self.image_label = tk.Label(root)
         self.image_label.pack()
 
-        self.sort_left_button = tk.Button(self.root, text="Sort Left", command=lambda: self.sort_image("left"))
-        self.sort_left_button.pack(side=tk.LEFT)
+        self.categories = ["ERROR (Left)", "Negative (Up)", "Positive (Right)", "None (Down)"]
+        self.category_shortcuts = ["<Left>", "<Up>", "<Right>", "<Down>"]
 
-        self.sort_right_button = tk.Button(self.root, text="Sort Right", command=lambda: self.sort_image("right"))
-        self.sort_right_button.pack(side=tk.RIGHT)
+        self.index = 0
+        self.load_image()
 
-    def load_random_image(self):
-        if self.image_files:
-            self.current_image = random.choice(self.image_files)
-            file_path = os.path.join(self.image_dir, self.current_image)
-            img = Image.open(file_path)
-            img = img.resize((400, 400), Image.ANTIALIAS)
-            img_tk = ImageTk.PhotoImage(img)
-            self.image_label.config(image=img_tk)
-            self.image_label.image = img_tk
+        # Bind arrow keys for sorting
+        for category, shortcut in zip(self.categories, self.category_shortcuts):
+            root.bind(shortcut, lambda event, c=category.split()[0]: self.sort_image(c))
+
+        self.create_buttons()
+
+    def create_buttons(self):
+        self.category_buttons = []
+        for category in self.categories:
+            button = tk.Button(self.root, text=category, command=lambda c=category.split()[0]: self.sort_image(c))
+            button.pack()
+            self.category_buttons.append(button)
+
+    def get_image_files(self):
+        image_files = []
+        for filename in os.listdir(self.input_dir):
+            if self.is_image_file(filename):
+                image_files.append(filename)
+        return image_files
+
+    def is_image_file(self, filename):
+        return filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))
+
+    def load_image(self):
+        if self.index < len(self.image_files):
+            filename = self.image_files[self.index]
+            filepath = os.path.join(self.input_dir, filename)
+            try:
+                image = Image.open(filepath)
+                image.thumbnail((400, 400))  # Resize image to fit the window
+                self.photo = ImageTk.PhotoImage(image)
+                self.image_label.config(image=self.photo)
+                self.image_label.image = self.photo
+            except Exception as e:
+                print(f"Error loading {filename}: {e}")
+        else:
+            self.image_label.config(image=None)
+            self.image_label.config(text="All images sorted!")
 
     def sort_image(self, category):
-        if self.current_image:
-            src = os.path.join(self.image_dir, self.current_image)
-            dest_dir = os.path.join(self.goal_dir, category)
+        if self.index < len(self.image_files):
+            filename = self.image_files[self.index]
+            src = os.path.join(self.input_dir, filename)
+            dst = os.path.join(self.output_dir, category)
+            if not os.path.exists(dst):
+                os.makedirs(dst)
+            counter = self.get_counter()
+            new_filename = f"{os.path.splitext(filename)[0]}_sorted_{counter}{os.path.splitext(filename)[1]}"
+            shutil.move(src, os.path.join(dst, new_filename))
+            self.index += 1
+            self.update_counter(counter)
+            self.load_image()
+        else:
+            self.index = 0
+            self.image_files = self.get_image_files()
+            self.load_image()
 
-            if not os.path.exists(dest_dir):
-                os.makedirs(dest_dir)
+    def get_counter(self):
+        if os.path.exists(self.counter_file):
+            with open(self.counter_file, 'r') as f:
+                counter = int(f.read())
+        else:
+            counter = 0
+        return counter
 
-            dest = os.path.join(dest_dir, self.current_image)
-            shutil.move(src, dest)
-            self.image_files.remove(self.current_image)
-            self.current_image = None
-            self.load_random_image()
+    def update_counter(self, counter):
+        counter += 1
+        with open(self.counter_file, 'w') as f:
+            f.write(str(counter))
 
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python photosorter.py <input_directory> <output_directory>")
+        sys.exit(1)
+
+    input_dir = sys.argv[1]
+    output_dir = sys.argv[2]
+
+    if not os.path.isdir(input_dir) or not os.path.isdir(output_dir):
+        print("Error: Input or output directory does not exist.")
+        sys.exit(1)
+
     root = tk.Tk()
-
-    image_dir = "/home/coding/gui/image/directory"  # Replace with your image directory path
-    goal_dir = "/home/coding/gui/imag/directory"    # Replace with your goal directory path
-
-    app = ImageSorter(root, image_dir, goal_dir)
+    app = PhotoSorter(root, input_dir, output_dir)
     root.mainloop()
